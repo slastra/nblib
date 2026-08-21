@@ -11,11 +11,11 @@ verified byte-for-byte against it. See
 [ACKNOWLEDGEMENTS.md](./ACKNOWLEDGEMENTS.md) for what came from where, why this
 exists separately, and where the two deliberately differ.
 
-> **Status: the encoder is proven, the transport is not.** Every byte this
-> produces for a page has been checked against niimbluelib across hundreds of
-> rasters, but the print sequence and the Web Bluetooth link have so far only
-> run against a fake printer in the test suite — no label has come out of real
-> hardware yet. If you have a B1, reports either way are welcome.
+> **Status: printed on a real B1**, first attempt, 2026-08-21. The encoder was
+> verified byte for byte against niimbluelib across hundreds of rasters before
+> that; the transport and the print sequence have now met hardware too. Only
+> the default path is confirmed, though — other stock types, densities and the
+> `left` feed direction are still untested, so reports are welcome.
 
 ```bash
 bun add @slastra/nblib

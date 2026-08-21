@@ -1,6 +1,6 @@
 {
 	"name": "@slastra/nblib",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "NIIMBOT B1 label printer protocol: packet framing, 1-bit raster encoding, print-job orchestration, and a Web Bluetooth transport. Browser-first, dependency-free ESM.",
 	"keywords": [
 		"niimbot",
