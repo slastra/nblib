@@ -2,6 +2,12 @@ MIT License
 
 Copyright (c) 2026 Shaun Lastra
 
+This library is a port of niimbluelib (https://github.com/MultiMote/niimbluelib),
+whose reverse-engineering of the NIIMBOT protocol it is derived from, and which
+is licensed under the same terms:
+
+Copyright (c) 2024 MultiMote
+
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
