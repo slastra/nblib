@@ -9,10 +9,12 @@ import {
 	REPLIES,
 	parseHeartbeat,
 	parsePrintStatus,
+	parseRfidInfo,
 	u16,
 	type Heartbeat,
 	type Packet,
-	type PrintStatus
+	type PrintStatus,
+	type RfidInfo
 } from './protocol.js';
 import type { Page } from './encode.js';
 
@@ -119,6 +121,26 @@ export async function readModelId(
 	const reply = await exchange(link, Cmd.PrinterInfo, [8], timeoutMs);
 	if (reply.data.length === 1) return reply.data[0] << 8;
 	return (reply.data[0] << 8) | reply.data[1];
+}
+
+/**
+ * Read the RFID tag in the loaded roll, or null when there is none to read.
+ *
+ * Returns null for both "no tag" answers: the short reply a printer gives for
+ * untagged stock, and the explicit not-supported reply from a model with no
+ * reader at all. Neither is a fault worth throwing over — the caller asked
+ * what is on the roll, and the honest answer is "nothing".
+ */
+export async function readRfidInfo(
+	link: Link,
+	timeoutMs = DEFAULT_PACKET_TIMEOUT_MS
+): Promise<RfidInfo | null> {
+	try {
+		return parseRfidInfo((await exchange(link, Cmd.RfidInfo, [1], timeoutMs)).data);
+	} catch (err) {
+		if (err instanceof PrintError && err.code === 0) return null;
+		throw err;
+	}
 }
 
 export interface PrintJobOptions {

@@ -36,7 +36,9 @@ export const Cmd = {
 	PageEnd: 0xe3,
 	PrintEnd: 0xf3,
 	PrintStatus: 0xa3,
-	CancelPrint: 0xda
+	CancelPrint: 0xda,
+	/** Read the tag in the loaded roll. Answered only by RFID-capable models. */
+	RfidInfo: 0x1a
 } as const;
 
 /** Commands the printer sends back. */
@@ -67,6 +69,7 @@ export const Resp = {
 	PrinterCheckLine: 0xd3,
 	ResetTimeout: 0xc6,
 	CancelPrint: 0xd0,
+	RfidInfo: 0x1b,
 	/** Data byte is a PRINT_ERRORS code. Can arrive in reply to anything. */
 	PrintError: 0xdb
 } as const;
@@ -87,6 +90,7 @@ export const REPLIES: Record<number, number[] | null> = {
 		Resp.PrinterInfoDensity
 	],
 	[Cmd.PrinterStatusData]: [Resp.PrinterStatusData],
+	[Cmd.RfidInfo]: [Resp.RfidInfo],
 	[Cmd.Heartbeat]: [
 		Resp.HeartbeatBasic,
 		Resp.HeartbeatUnknown,
@@ -333,4 +337,80 @@ export function describeHeartbeat(hb: Heartbeat): string {
 	if (hb.lidClosed === false) faults.push('cover open');
 	if (hb.paperInserted === false) faults.push('out of paper');
 	return faults.join(', ') || 'ready';
+}
+
+/**
+ * What the RFID tag in a roll of genuine stock carries.
+ *
+ * The layout is confirmed against niimbluelib and against a real B1 roll,
+ * whose 40-byte payload this consumes exactly — two independent length
+ * prefixes both landing on the final byte is not something a wrong layout
+ * does by accident.
+ *
+ * Every field is still optional and `raw` is always present: the payload is
+ * variable-length in two places, so a firmware that orders it differently
+ * would otherwise be decoded into confident nonsense. Keeping the bytes lets
+ * a caller see what actually arrived.
+ */
+export interface RfidInfo {
+	/** Hex of the tag's 8-byte unique id. */
+	uuid?: string;
+	/** Printed on the roll's packaging. */
+	barcode?: string;
+	serial?: string;
+	/** Labels the tag was manufactured with. */
+	total?: number;
+	/** Labels the printer has burned against this tag. */
+	used?: number;
+	/**
+	 * Stock type, as a `LabelType` value — the same enumeration `SetLabelType`
+	 * takes, so a tag's answer can be fed straight back to the printer.
+	 */
+	type?: number;
+	/** Labels the roll holds. Sent by some rolls only. */
+	capacity?: number;
+	/** The undecoded payload, always. */
+	raw: string;
+}
+
+/**
+ * Decode an RFID reply, returning `null` when no tag was read.
+ *
+ * A printer with no roll, or one loaded with untagged stock, answers with a
+ * single byte rather than an error — so "nothing there" is a normal reply and
+ * must not throw. Anything longer is decoded as far as it parses cleanly: the
+ * two length-prefixed strings in the middle mean a wrong prefix walks the
+ * offset off the end, and a partial answer beats a fabricated one.
+ */
+export function parseRfidInfo(data: Uint8Array): RfidInfo | null {
+	const raw = toHex(data);
+	if (data.length <= 1) return null;
+	const out: RfidInfo = { raw };
+	if (data.length < 9) return out;
+
+	out.uuid = toHex(data.subarray(0, 8));
+	let i = 8;
+	const ascii = (): string | undefined => {
+		const len = data[i++];
+		if (len === undefined || i + len > data.length) return undefined;
+		const s = String.fromCharCode(...data.subarray(i, i + len));
+		i += len;
+		return s;
+	};
+	const barcode = ascii();
+	if (barcode === undefined) return out;
+	out.barcode = barcode;
+	const serial = ascii();
+	if (serial === undefined) return out;
+	out.serial = serial;
+
+	if (i + 5 > data.length) return out;
+	out.total = readU16(data, i);
+	out.used = readU16(data, i + 2);
+	out.type = data[i + 4];
+	i += 5;
+	// Trailing and optional: present on some rolls, absent on others, and the
+	// only way to tell is whether the bytes are there.
+	if (i + 2 <= data.length) out.capacity = readU16(data, i);
+	return out;
 }

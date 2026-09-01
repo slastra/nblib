@@ -227,3 +227,74 @@ describe('pixel counting', () => {
 		expect(indexPixels(data)).toEqual([0, 0, 0, 7, 0, 23]);
 	});
 });
+
+describe('align', () => {
+	/** One row, 16 dots wide, all burning, on a 64-dot head. */
+	const row = () => mk(16, 1, () => 1);
+	const opts = { printheadPixels: 64 } as const;
+	/** The bitmap packet's dot bits, past the position, counts and repeat. */
+	const bits = (page: { data: Uint8Array }) => {
+		const p = parsePackets(page.data).packets.find((x) => x.cmd === Cmd.PrintBitmapRow);
+		return [...(p?.data.subarray(6) ?? [])].map((b) => b.toString(2).padStart(8, '0')).join('');
+	};
+
+	test('left keeps the page as narrow as the raster', () => {
+		const page = buildPage(row(), opts);
+		expect(page.cols).toBe(16);
+		expect(bits(page)).toBe('1'.repeat(16));
+	});
+
+	test('center pads the page to the head and splits the slack', () => {
+		const page = buildPage(row(), { ...opts, align: 'center' });
+		expect(page.cols).toBe(64);
+		expect(bits(page)).toBe('0'.repeat(24) + '1'.repeat(16) + '0'.repeat(24));
+	});
+
+	test('right pushes the raster to the far edge', () => {
+		expect(bits(buildPage(row(), { ...opts, align: 'right' }))).toBe(
+			'0'.repeat(48) + '1'.repeat(16)
+		);
+	});
+
+	test('a full-width raster is unmoved by centering', () => {
+		expect(
+			bits(
+				buildPage(
+					mk(64, 1, () => 1),
+					{ ...opts, align: 'center' }
+				)
+			)
+		).toBe('1'.repeat(64));
+	});
+
+	test('an odd slack does not lose or duplicate a dot', () => {
+		const page = buildPage(
+			mk(62, 1, () => 1),
+			{ ...opts, align: 'center' }
+		);
+		expect(bits(page)).toBe('0' + '1'.repeat(62) + '0');
+	});
+
+	test('centering measures after the rotation, not before', () => {
+		// 8 across x 16 down, fed left-edge-first: it is the 16 that crosses the head
+		const page = buildPage(
+			mk(8, 16, () => 1),
+			{ ...opts, align: 'center', direction: 'left' }
+		);
+		expect(page.cols).toBe(64);
+		expect(page.rows).toBe(8);
+		expect(bits(page)).toBe('0'.repeat(24) + '1'.repeat(16) + '0'.repeat(24));
+	});
+
+	test('blank rows stay blank, and cheap, when centered', () => {
+		const page = buildPage(
+			mk(16, 4, (_x, y) => (y === 0 ? 1 : 0)),
+			{ ...opts, align: 'center' }
+		);
+		const { packets } = parsePackets(page.data);
+		const empties = packets.filter((p) => p.cmd === Cmd.PrintEmptyRow);
+		expect(empties).toHaveLength(1);
+		expect(readU16(empties[0].data)).toBe(1);
+		expect(empties[0].data[2]).toBe(3);
+	});
+});

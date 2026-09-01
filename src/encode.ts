@@ -32,10 +32,30 @@ export interface Page {
 	data: Uint8Array;
 }
 
+/**
+ * Where a raster narrower than the head sits across it.
+ *
+ * The printer has no notion of margins: it starts every row at dot 0 unless
+ * the raster itself says otherwise. So a 40 mm design on a 48 mm head prints
+ * hard against one edge with all 8 mm of slack on the other side, which reads
+ * as the label being badly centred.
+ */
+export type PageAlign = 'left' | 'center' | 'right';
+
 export interface PageOptions {
 	direction?: PrintDirection;
 	/** Dots across the print head. Decides the row guard and the count split. */
 	printheadPixels?: number;
+	/**
+	 * Where to sit a raster narrower than the head. Defaults to `left`, which
+	 * is what the printer does on its own.
+	 *
+	 * `center` is what a design smaller than its stock usually wants — but it
+	 * centres on the HEAD, and the head is not necessarily centred on the
+	 * stock. On a printer whose head sits off to one side, `right` is the
+	 * one-word correction.
+	 */
+	align?: PageAlign;
 }
 
 /**
@@ -56,13 +76,16 @@ function rotateCW(rows: RasterRow[]): RasterRow[] {
 
 /**
  * Pack a row of dots into bits, most significant bit leftmost, padded out to a
- * whole number of bytes. The pad lands on the RIGHT, so the image stays
- * anchored to the left of the head rather than shifting.
+ * whole number of bytes. `offset` is where dot 0 of the row lands on the head,
+ * so the pad can be placed on either side of the image.
  */
-function packRow(row: RasterRow, cols: number): Uint8Array {
+function packRow(row: RasterRow, cols: number, offset: number): Uint8Array {
 	const out = new Uint8Array(cols / 8);
 	for (let x = 0; x < row.length; x++) {
-		if (row[x]) out[x >> 3] |= 0x80 >> (x & 7);
+		if (row[x]) {
+			const at = x + offset;
+			out[at >> 3] |= 0x80 >> (at & 7);
+		}
 	}
 	return out;
 }
@@ -139,7 +162,7 @@ const INDEX_THRESHOLD = 6;
  * draws a reply mid-raster that nothing is waiting for.
  */
 export function buildPage(rows: RasterRow[], options: PageOptions = {}): Page {
-	const { direction = 'top', printheadPixels = B1_PRINTHEAD_PIXELS } = options;
+	const { direction = 'top', printheadPixels = B1_PRINTHEAD_PIXELS, align = 'left' } = options;
 	if (!rows.length) throw new Error('raster has no rows');
 	for (const [i, row] of rows.entries()) {
 		if (row.length !== rows[0].length) {
@@ -158,7 +181,11 @@ export function buildPage(rows: RasterRow[], options: PageOptions = {}): Page {
 				(direction === 'top' ? ' — try printDirection "left"' : '')
 		);
 	}
-	const cols = Math.ceil(across / 8) * 8;
+	// Aligning anywhere but left means describing the page as the full head:
+	// the slack has to be inside the row for the printer to put dots past it.
+	const cols = align === 'left' ? Math.ceil(across / 8) * 8 : Math.ceil(printheadPixels / 8) * 8;
+	const slack = cols - across;
+	const offset = align === 'center' ? slack >> 1 : align === 'right' ? slack : 0;
 
 	const parts: Uint8Array[] = [];
 	const emit = (cmd: number, data: number[]) => parts.push(encodePacket(cmd, data));
@@ -193,7 +220,7 @@ export function buildPage(rows: RasterRow[], options: PageOptions = {}): Page {
 	const same = (a: Uint8Array, b: Uint8Array) => a.every((v, i) => v === b[i]);
 
 	for (const [y, row] of oriented.entries()) {
-		const packed = packRow(row, cols);
+		const packed = packRow(row, cols, offset);
 		const blank = packed.every((b) => b === 0);
 		if (runPacked && blank === runBlank && (blank || same(packed, runPacked))) {
 			runCount++;

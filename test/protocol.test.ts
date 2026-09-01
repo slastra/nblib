@@ -10,6 +10,7 @@ import {
 	describePrintError,
 	encodePacket,
 	hexToBytes,
+	parseRfidInfo,
 	parseHeartbeat,
 	parsePackets,
 	parsePrintStatus,
@@ -217,4 +218,95 @@ describe('response ids', () => {
 		expect(REPLIES[Cmd.PrintEmptyRow]).toBeNull();
 		expect(REPLIES[Cmd.PageStart]).toEqual([Resp.PageStart]);
 	});
+});
+
+describe('parseRfidInfo', () => {
+	/** A plausible tag: uuid, then two length-prefixed strings, then counts. */
+	const tag = (barcode: string, serial: string) =>
+		new Uint8Array([
+			...hexToBytes('0102030405060708'),
+			barcode.length,
+			...[...barcode].map((c) => c.charCodeAt(0)),
+			serial.length,
+			...[...serial].map((c) => c.charCodeAt(0)),
+			0x00,
+			0x96, // 150 made
+			0x00,
+			0x0c, // 12 used
+			0x01 // gap stock
+		]);
+
+	test('decodes a full tag', () => {
+		const info = parseRfidInfo(tag('B1-5030', 'ABC123'));
+		expect(info).toMatchObject({
+			uuid: '0102030405060708',
+			barcode: 'B1-5030',
+			serial: 'ABC123',
+			total: 150,
+			used: 12,
+			type: 1
+		});
+	});
+
+	test('no tag is null, not an error — untagged stock is normal', () => {
+		expect(parseRfidInfo(new Uint8Array([0]))).toBeNull();
+		expect(parseRfidInfo(new Uint8Array())).toBeNull();
+	});
+
+	test('the raw bytes survive even when nothing else parses', () => {
+		const info = parseRfidInfo(new Uint8Array([0xde, 0xad, 0xbe, 0xef]));
+		expect(info?.raw).toBe('deadbeef');
+		expect(info?.uuid).toBeUndefined();
+	});
+
+	test('a length prefix running off the end truncates rather than invents', () => {
+		// says the barcode is 200 bytes; there are not 200 bytes
+		const short = new Uint8Array([...hexToBytes('0102030405060708'), 200, 0x41, 0x42]);
+		const info = parseRfidInfo(short);
+		expect(info?.uuid).toBe('0102030405060708');
+		expect(info?.barcode).toBeUndefined();
+		expect(info?.total).toBeUndefined();
+		expect(info?.raw).toBe('0102030405060708c84142');
+	});
+
+	test('a tag with the strings but no counts keeps the strings', () => {
+		const noCounts = new Uint8Array([...hexToBytes('0102030405060708'), 2, 0x41, 0x42, 0]);
+		const info = parseRfidInfo(noCounts);
+		expect(info?.barcode).toBe('AB');
+		expect(info?.serial).toBe('');
+		expect(info?.total).toBeUndefined();
+	});
+});
+
+test('an optional trailing capacity is read when the roll sends one', () => {
+	const withCapacity = new Uint8Array([
+		...hexToBytes('0102030405060708'),
+		2,
+		0x41,
+		0x42,
+		2,
+		0x43,
+		0x44,
+		0x00,
+		0x96,
+		0x00,
+		0x0c,
+		0x01,
+		0x01,
+		0x2c // capacity 300
+	]);
+	expect(parseRfidInfo(withCapacity)?.capacity).toBe(300);
+	// A real B1 roll's payload, byte for byte, with the identifiers replaced:
+	// 40 bytes, no trailing capacity, and it must consume exactly.
+	const b1 = hexToBytes(
+		'001122334455667709393939393939393939103030303030303030303030303030303000b4000305'
+	);
+	expect(parseRfidInfo(b1)).toMatchObject({
+		barcode: '999999999',
+		serial: '0000000000000000',
+		total: 180,
+		used: 3,
+		type: 5
+	});
+	expect(parseRfidInfo(b1)?.capacity).toBeUndefined();
 });

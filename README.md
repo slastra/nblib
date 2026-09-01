@@ -30,7 +30,7 @@ import { connect } from '@slastra/nblib/web-bluetooth';
 const link = await connect(); // must be called from a user gesture
 const ctx = canvas.getContext('2d')!;
 const rows = imageDataToRows(ctx.getImageData(0, 0, canvas.width, canvas.height));
-const page = buildPage(rows, { direction: 'top' });
+const page = buildPage(rows, { direction: 'top', align: 'center' });
 
 await printJob(link, [() => Promise.resolve(page)], {
 	density: 3,
@@ -42,6 +42,43 @@ await printJob(link, [() => Promise.resolve(page)], {
 `printJob` takes builders rather than pages so a thousand-label batch does not
 rasterize a thousand labels up front; page _i+1_ renders while page _i_ is
 still on the wire.
+
+## A narrower design does not centre itself
+
+The printer starts every row at dot 0 and has no notion of a margin, so a
+40 mm design on a 48 mm head prints hard against one edge with all 8 mm of
+slack on the other. `align` decides where the slack goes:
+
+| `align`  |                                                                       |
+| -------- | --------------------------------------------------------------------- |
+| `left`   | default, and what the printer does on its own                         |
+| `center` | splits the slack — usually what a design smaller than its stock wants |
+| `right`  | all the slack on the near side                                        |
+
+`center` centres on the **head**, and the head is not necessarily centred on
+the stock. If a label lands consistently off by a millimetre or two, that is
+the head offset rather than the arithmetic, and `right` is the one-word test
+that says which way it goes.
+
+## Reading the roll's RFID tag
+
+Genuine NIIMBOT stock carries an NFC tag. `readRfidInfo` returns `null` for
+both kinds of nothing — untagged stock, and a printer with no reader — since
+from the caller's side those are the same answer.
+
+```ts
+import { readRfidInfo } from '@slastra/nblib';
+
+const tag = await readRfidInfo(link);
+// { uuid, barcode, serial, total, used, type, raw }
+```
+
+`type` is a `LabelType` value from the same enumeration `printJob`'s
+`labelType` takes, so the tag's answer can be fed straight back to the
+printer. There are no dimensions on the tag — it carries identity and a
+counter, not a media size. `raw` is always present: the payload is
+variable-length in two places, so an unfamiliar firmware is visible as bytes
+rather than decoded into confident nonsense.
 
 ## Print direction is a property of the label
 

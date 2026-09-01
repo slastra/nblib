@@ -23,6 +23,7 @@ export {
 	parsePackets,
 	parsePrintStatus,
 	parseHeartbeat,
+	parseRfidInfo,
 	hexToBytes,
 	toHex,
 	u16,
@@ -30,6 +31,7 @@ export {
 	type Packet,
 	type PrintStatus,
 	type Heartbeat,
+	type RfidInfo,
 	type LabelTypeValue
 } from './protocol.js';
 
@@ -40,6 +42,7 @@ export {
 	B1_PRINTHEAD_PIXELS,
 	B1_DPMM,
 	type Page,
+	type PageAlign,
 	type PageOptions,
 	type PrintDirection,
 	type RasterRow
@@ -55,6 +58,7 @@ export {
 	readHeartbeat,
 	readPrintStatus,
 	readModelId,
+	readRfidInfo,
 	DEFAULT_PACKET_TIMEOUT_MS,
 	type Link,
 	type PrintJobOptions
